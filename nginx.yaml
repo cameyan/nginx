@@ -1,0 +1,4 @@
+version_control: github
+src_repo: nginx/nginx
+tag_prefix: release-
+seperator: .
