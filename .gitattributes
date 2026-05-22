@@ -1,1 +1,2 @@
 nginx-*.tar.gz filter=lfs diff=lfs merge=lfs -text
+ngx-fancyindex-*.tar.xz filter=lfs diff=lfs merge=lfs -text

@@ -20,7 +20,7 @@
 
 Name:              nginx
 Epoch:             1
-Version:           1.30.0
+Version:           1.31.0
 Release:           1
 Summary:           一个 HTTP 服务器、反向代理和邮件代理服务器
 License:           BSD-2-Clause
@@ -395,5 +395,8 @@ fi
 %{_mandir}/man8/nginx.8*
 
 %changelog
+* Fri May 22 2026 wjiang <cameyan@163.com> - 1:1.31.0-1
+- upgrade to 1.31.0 and lfs ngx-fancyindex
+
 * Thu Apr 30 2026 wjiang <cameyan@163.com> - 1:1.30.0-1
 - 初始化 Nginx 1.30.0
