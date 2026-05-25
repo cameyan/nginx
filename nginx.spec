@@ -13,7 +13,7 @@
 
 # ngx-fancyindex 源码版本
 # https://github.com/aperezdc/ngx-fancyindex
-%global fancy_version 0.5.2
+%global fancy_version 0.6.0
 
 %global __provides_exclude_from ^%{_usrsrc}/%{name}-%{version}-%{release}/.*$
 %global __requires_exclude_from ^%{_usrsrc}/%{name}-%{version}-%{release}/.*$
@@ -27,7 +27,7 @@ License:           BSD-2-Clause
 URL:               http://nginx.org/
 
 Source0:           https://nginx.org/download/nginx-%{version}.tar.gz
-Source1:           ngx-fancyindex-%{fancy_version}.tar.xz
+Source1:           https://github.com/aperezdc/ngx-fancyindex/releases/download/v0.6.0/ngx-fancyindex-%{fancy_version}.tar.xz
 Source10:          nginx.service
 Source11:          nginx.logrotate
 Source12:          nginx.conf
@@ -395,6 +395,10 @@ fi
 %{_mandir}/man8/nginx.8*
 
 %changelog
+* Mon May 25 2026 wjiang <cameyan@163.com> - 1:1.31.0-2
+- 1. upgrade fancyindex module to 0.6.0
+  2. update nginx.conf
+
 * Fri May 22 2026 wjiang <cameyan@163.com> - 1:1.31.0-1
 - upgrade to 1.31.0 and lfs ngx-fancyindex
 
