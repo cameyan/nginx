@@ -21,7 +21,7 @@
 Name:              nginx
 Epoch:             1
 Version:           1.31.0
-Release:           1
+Release:           2
 Summary:           一个 HTTP 服务器、反向代理和邮件代理服务器
 License:           BSD-2-Clause
 URL:               http://nginx.org/
