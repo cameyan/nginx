@@ -44,10 +44,12 @@ jobs:
       # 显式使用 /root 绝对路径替代不稳定的 $HOME 变量，确保绝对能抓取到 rpm 文件。
       - name: 收集 RPM 产物
         run: |
+          echo "HOME: $HOME"
+          echo "PWD: $(pwd)"
           mkdir -p output_rpms
-          cp -r "$HOME/rpmbuild/RPMS/x86_64/*.rpm" output_rpms/ 2>/dev/null || true
-          cp -r "$HOME/rpmbuild/RPMS/noarch/*.rpm" output_rpms/ 2>/dev/null || true
-          cp -r "$HOME/rpmbuild/SRPMS/*.src.rpm" output_rpms/ 2>/dev/null || true
+          cp -r $HOME/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r $HOME/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r $HOME/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
           
           # 在日志中打印一下收集到的成果，方便你在排错时肉眼确认
           echo "==== 收集到的 RPM 资产列表 ===="
