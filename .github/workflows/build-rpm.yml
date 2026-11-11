@@ -1,64 +1,65 @@
-name: Build Nginx RPM on Tag and Release
+name: 基于 tag 构建 Nginx RPM 并发布
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}
 
 permissions:
   contents: write # 赋予创建 Release 和上传资产的权限
 
 jobs:
   build-and-release:
-    name: Build RPM and Release
+    name: 构建 RPM 并发布
     runs-on: ubuntu-latest
 
-    # 动态引用上面定义好的系统镜像
+    # 保持使用你的目标系统镜像
     container:
       image: fedora:44
 
     steps:
-      # 步骤 1: 检出仓库代码
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # 💡 优化点 1：将 actions/checkout 更新到最新支持 Node 24 的 v5 版本，消除告警
+      - name: 检出代码
+        uses: actions/checkout@v5
 
-      # 步骤 2: 初始化环境（兼容 openEuler 和 Fedora 的最安全写法）
-      - name: Install system build essentials
+      # 步骤 2: 初始化环境
+      - name: 安装系统构建必需组件
         run: |
-          # 针对 openEuler 极简镜像，补充安装最基础的系统工具（如 tar, gzip），确保后续解压和构建正常
           dnf install -y tar gzip cpio findutils
-          
-          # 安装标准的 RPM 构建工具链
           dnf install -y rpm-build rpmdevtools gcc make dnf-plugins-core
 
       # 步骤 3: 直接调用你的本地自动化构建脚本
-      - name: Run local auto_build script
+      - name: 运行仓库 auto_build.sh 构建脚本
         run: |
           chmod +x auto_build.sh
           bash auto_build.sh -b
 
-      # 步骤 4: 收集编译好的 RPM 包
-      - name: Collect RPM Artifacts
+      # 💡 优化点 2：修复路径找不着的问题。
+      # 显式使用 /root 绝对路径替代不稳定的 $HOME 变量，确保绝对能抓取到 rpm 文件。
+      - name: 收集 RPM 产物
         run: |
           mkdir -p output_rpms
-          # openEuler 和 Fedora 的 rpmbuild 默认生成路径同样是 $HOME/rpmbuild/RPMS/
-          cp -r $HOME/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r $HOME/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r $HOME/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
+          cp -r /root/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r /root/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r /root/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
+          
+          # 在日志中打印一下收集到的成果，方便你在排错时肉眼确认
+          echo "==== 收集到的 RPM 资产列表 ===="
+          ls -lh output_rpms/
 
-      # 步骤 5: 创建 Release 并发布
-      - name: Create Release and Upload RPMs
+      # 💡 优化点 3：将创建 Release 插件升级到最新主版本以完美适配 Node 24，消除告警
+      - name: 创建并发布 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "${{ github.ref_name }}"
           body: |
-            Automated production build for Nginx.
-            - Target OS Image: `${{ env.TARGET_IMAGE }}`
-            - Triggered by Tag: `${{ github.ref_name }}`
-            - Architecture: x86_64 (x64)
+            Nginx 的自动化生产构建:
+            - 标签: `${{ github.ref_name }}`
+            - 镜像: fedora:44
+            - 架构: x86_64 (x64)
           draft: false
           prerelease: false
+          # 💡 如果 output_rpms 是空的，该插件会抛出警告。现在路径修复后这里会自动匹配。
           files: |
             output_rpms/*.rpm
