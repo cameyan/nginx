@@ -8,14 +8,6 @@ on:
 permissions:
   contents: write # 赋予创建 Release 和上传资产的权限
 
-# 💡 在这里一键切换你的目标系统镜像：
-env:
-  # 如果要用 Fedora，取消下一行的注释，并注释掉 openEuler
-  TARGET_IMAGE: "fedora:44"
-
-  # 如果要用 openEuler，保持使用下面这行（建议指定具体版本号，如 22.03 或 24.03）
-  # TARGET_IMAGE: "openeuler/openeuler:24.03"
-
 jobs:
   build-and-release:
     name: Build RPM and Release
@@ -23,7 +15,7 @@ jobs:
 
     # 动态引用上面定义好的系统镜像
     container:
-      image: ${{ env.TARGET_IMAGE }}
+      image: fedora:44
 
     steps:
       # 步骤 1: 检出仓库代码
