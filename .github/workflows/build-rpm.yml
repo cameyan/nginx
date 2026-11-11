@@ -1,0 +1,71 @@
+name: Build Nginx RPM on Tag and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # 赋予创建 Release 和上传资产的权限
+
+# 💡 在这里一键切换你的目标系统镜像：
+env:
+  # 如果要用 Fedora，取消下一行的注释，并注释掉 openEuler
+  TARGET_IMAGE: "fedora:44"
+
+  # 如果要用 openEuler，保持使用下面这行（建议指定具体版本号，如 22.03 或 24.03）
+  # TARGET_IMAGE: "openeuler/openeuler:24.03"
+
+jobs:
+  build-and-release:
+    name: Build RPM and Release
+    runs-on: ubuntu-latest
+
+    # 动态引用上面定义好的系统镜像
+    container:
+      image: ${{ env.TARGET_IMAGE }}
+
+    steps:
+      # 步骤 1: 检出仓库代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 步骤 2: 初始化环境（兼容 openEuler 和 Fedora 的最安全写法）
+      - name: Install system build essentials
+        run: |
+          # 针对 openEuler 极简镜像，补充安装最基础的系统工具（如 tar, gzip），确保后续解压和构建正常
+          dnf install -y tar gzip cpio findutils
+          
+          # 安装标准的 RPM 构建工具链
+          dnf install -y rpm-build rpmdevtools gcc make dnf-plugins-core
+
+      # 步骤 3: 直接调用你的本地自动化构建脚本
+      - name: Run local auto_build script
+        run: |
+          chmod +x auto_build.sh
+          bash auto_build.sh -b
+
+      # 步骤 4: 收集编译好的 RPM 包
+      - name: Collect RPM Artifacts
+        run: |
+          mkdir -p output_rpms
+          # openEuler 和 Fedora 的 rpmbuild 默认生成路径同样是 $HOME/rpmbuild/RPMS/
+          cp -r $HOME/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r $HOME/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
+          cp -r $HOME/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
+
+      # 步骤 5: 创建 Release 并发布
+      - name: Create Release and Upload RPMs
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "${{ github.ref_name }}"
+          body: |
+            Automated production build for Nginx.
+            - Target OS Image: `${{ env.TARGET_IMAGE }}`
+            - Triggered by Tag: `${{ github.ref_name }}`
+            - Architecture: x86_64 (x64)
+          draft: false
+          prerelease: false
+          files: |
+            output_rpms/*.rpm
