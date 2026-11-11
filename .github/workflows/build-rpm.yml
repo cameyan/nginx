@@ -1,73 +1,73 @@
-name: 基于 tag 构建 Nginx RPM 并发布
+name: Nginx RPM 构建与发布
 
+# 触发条件
 on:
   push:
     tags:
+      # 推送名为 v* tag 时触发
       - 'v*'
 
 permissions:
-  contents: write # 赋予创建 Release 和上传资产的权限
+  # 赋予创建 Release 和上传资产的权限
+  contents: write
 
+# 任务工作流
 jobs:
   build-and-release:
     name: 构建 RPM 并发布
+    # 宿主机环境
     runs-on: ubuntu-latest
 
-    # 保持使用你的目标系统镜像
+    # 使用 fedora:44 容器镜像构建
     container:
       image: fedora:44
 
     steps:
-      # 💡 优化点 1：将 actions/checkout 更新到最新支持 Node 24 的 v5 版本，消除告警
+      # 步骤 1
       - name: 检出代码
         uses: actions/checkout@v5
 
-      # 步骤 2: 初始化环境
-      - name: 安装系统构建必需组件
+      # 步骤 2
+      - name: 安装构建环境基础组件
         run: |
-          dnf install -y tar gzip cpio findutils
-          dnf install -y rpm-build rpmdevtools gcc make dnf-plugins-core perl
+          dnf install -y rpm-build rpmdevtools dnf-plugins-core gcc make perl
 
-      # 步骤 3: 直接调用你的本地自动化构建脚本
-      - name: 运行仓库 auto_build.sh 构建脚本
+      # 步骤 3
+      - name: 准备构建源码
         run: |
           rpmdev-setuptree
 
           cp -a * "$HOME/rpmbuild/SOURCES/"
           cp -a nginx.spec "$HOME/rpmbuild/SPECS/"
 
+      # 步骤 4
+      - name: 安装构建依赖并开始构建
+        run: |
+
           dnf builddep -y "$HOME/rpmbuild/SPECS/nginx.spec"
 
           rpmbuild --noclean -ba "$HOME/rpmbuild/SPECS/nginx.spec"
 
-      # 💡 优化点 2：修复路径找不着的问题。
-      # 显式使用 /root 绝对路径替代不稳定的 $HOME 变量，确保绝对能抓取到 rpm 文件。
-      - name: 收集 RPM 产物
+      # 步骤 5
+      - name: 收集构建产物
         run: |
-          echo "HOME: $HOME"
-          echo "PWD: $(pwd)"
-          mkdir -p output_rpms
-          cp -r $HOME/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r $HOME/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r $HOME/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
-          
-          # 在日志中打印一下收集到的成果，方便你在排错时肉眼确认
-          echo "==== 收集到的 RPM 资产列表 ===="
-          ls -lh output_rpms/
+          mkdir dist_rpm
+          find "$HOME/rpmbuild/RPMS/" -type f -name "*.rpm" -exec cp -a {} dist_rpm/ \;
+          find "$HOME/rpmbuild/SRPMS/" -type f -name "*.src.rpm" -exec cp -a {} dist_rpm/ \;
 
-      # 💡 优化点 3：将创建 Release 插件升级到最新主版本以完美适配 Node 24，消除告警
+      # 步骤 6
       - name: 创建并发布 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: "${{ github.ref_name }}"
           body: |
-            Nginx 的自动化生产构建:
+            GitHub Actions 自动化构建信息:
             - 标签: `${{ github.ref_name }}`
             - 镜像: fedora:44
             - 架构: x86_64 (x64)
           draft: false
           prerelease: false
-          # 💡 如果 output_rpms 是空的，该插件会抛出警告。现在路径修复后这里会自动匹配。
+          # 待发布的产物
           files: |
-            output_rpms/*.rpm
+            dist_rpm/*
