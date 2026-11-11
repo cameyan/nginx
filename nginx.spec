@@ -46,7 +46,6 @@ Patch1:            nginx-1.12.1-logs-perm.patch
 Patch2:            nginx-fix-pidfile.patch
 
 BuildRequires:     gcc openssl-devel pcre2-devel zlib-devel systemd gperftools-devel
-BuildRequires:     perl
 Requires:          nginx-filesystem = %{epoch}:%{version}-%{release} openssl
 Requires:          nginx-all-modules = %{epoch}:%{version}-%{release}
 %if 0%{?with_mailcap_mimetypes}

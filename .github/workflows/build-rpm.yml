@@ -26,7 +26,7 @@ jobs:
       - name: 安装系统构建必需组件
         run: |
           dnf install -y tar gzip cpio findutils
-          dnf install -y rpm-build rpmdevtools gcc make dnf-plugins-core
+          dnf install -y rpm-build rpmdevtools gcc make dnf-plugins-core perl
 
       # 步骤 3: 直接调用你的本地自动化构建脚本
       - name: 运行仓库 auto_build.sh 构建脚本
