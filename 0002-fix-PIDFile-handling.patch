@@ -1,15 +1,31 @@
-Description: Fix NGINX pidfile handling
+From b0b8c68523df04eae02231a80cc659b30ea60333 Mon Sep 17 00:00:00 2001
+From: Felix Kaechele <felix@kaechele.ca>
+Date: Tue, 20 Apr 2021 21:28:18 -0400
+Subject: [PATCH 2/5] fix PIDFile handling
+
+Corresponding RHBZ: https://bugzilla.redhat.com/show_bug.cgi?id=1869026
+
+Rejected upstream: https://trac.nginx.org/nginx/ticket/1897
+
+Taken from: https://git.launchpad.net/ubuntu/+source/nginx/tree/debian/patches/nginx-fix-pidfile.patch
+
+From original patch:
 Author: Tj <ubuntu@iam.tj>
 Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/nginx/+bug/1581864
 Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=876365
 Last-Update: 2020-06-24
+
+Signed-off-by: Felix Kaechele <felix@kaechele.ca>
 ---
-This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+ src/core/nginx.c         | 24 +++++++++++++++++++++---
+ src/os/unix/ngx_daemon.c |  8 ++++++--
+ 2 files changed, 27 insertions(+), 5 deletions(-)
+
 diff --git a/src/core/nginx.c b/src/core/nginx.c
-index 9fcb0eb2..083eba1d 100644
+index 0deb27b7f98a..23edb59ff105 100644
 --- a/src/core/nginx.c
 +++ b/src/core/nginx.c
-@@ -338,14 +338,21 @@ main(int argc, char *const *argv)
+@@ -340,14 +340,21 @@ main(int argc, char *const *argv)
          ngx_process = NGX_PROCESS_MASTER;
      }
  
@@ -32,7 +48,7 @@ index 9fcb0eb2..083eba1d 100644
              return 1;
          }
  
-@@ -358,8 +365,19 @@ main(int argc, char *const *argv)
+@@ -360,8 +367,19 @@ main(int argc, char *const *argv)
  
  #endif
  
@@ -55,7 +71,7 @@ index 9fcb0eb2..083eba1d 100644
  
      if (ngx_log_redirect_stderr(cycle) != NGX_OK) {
 diff --git a/src/os/unix/ngx_daemon.c b/src/os/unix/ngx_daemon.c
-index 385c49b6..3719854c 100644
+index 385c49b6c3d1..3719854c52b0 100644
 --- a/src/os/unix/ngx_daemon.c
 +++ b/src/os/unix/ngx_daemon.c
 @@ -7,14 +7,17 @@
@@ -87,3 +103,6 @@ index 385c49b6..3719854c 100644
      }
  
      ngx_parent = ngx_pid;
+-- 
+2.53.0
+
