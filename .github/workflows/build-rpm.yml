@@ -39,9 +39,9 @@ jobs:
       - name: 收集 RPM 产物
         run: |
           mkdir -p output_rpms
-          cp -r /root/rpmbuild/RPMS/x86_64/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r /root/rpmbuild/RPMS/noarch/*.rpm output_rpms/ 2>/dev/null || true
-          cp -r /root/rpmbuild/SRPMS/*.src.rpm output_rpms/ 2>/dev/null || true
+          cp -r "$HOME/rpmbuild/RPMS/x86_64/*.rpm" output_rpms/ 2>/dev/null || true
+          cp -r "$HOME/rpmbuild/RPMS/noarch/*.rpm" output_rpms/ 2>/dev/null || true
+          cp -r "$HOME/rpmbuild/SRPMS/*.src.rpm" output_rpms/ 2>/dev/null || true
           
           # 在日志中打印一下收集到的成果，方便你在排错时肉眼确认
           echo "==== 收集到的 RPM 资产列表 ===="
