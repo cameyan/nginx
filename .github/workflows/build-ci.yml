@@ -1,7 +1,10 @@
-name: Nginx 测试构建并发布预发行版
+name: Nginx 代码提交构建验证
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
@@ -10,7 +13,7 @@ permissions:
 
 jobs:
   build-dev:
-    name: 测试构建并上传 Pre-release
+    name: 代码提交构建验证并上传 Pre-release
     runs-on: ubuntu-latest
     container:
       image: fedora:44
@@ -34,7 +37,7 @@ jobs:
           find "$HOME/rpmbuild/RPMS/" -type f -name "*.rpm" -exec cp -a {} dist_ci_rpm/ \;
           find "$HOME/rpmbuild/SRPMS/" -type f -name "*.src.rpm" -exec cp -a {} dist_ci_rpm/ \;
 
-      - name: 清理旧的测试 Pre-release
+      - name: 清理旧版本无效 Pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -45,7 +48,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-ci
-          name: "测试构建 (build-ci)"
+          name: "构建测试 (build-ci)"
           body: "最新提交的自动化测试构建产物(Commit: ${{ github.sha }})"
           draft: false
           prerelease: true
