@@ -1,130 +1,159 @@
-## START: Set by rpmautospec
-## (rpmautospec version 0.8.4)
-## RPMAUTOSPEC: autorelease, autochangelog
-%define autorelease(e:s:pb:n) %{?-p:0.}%{lua:
-    release_number = 2;
-    base_release_number = tonumber(rpm.expand("%{?-b*}%{!?-b:1}"));
-    print(release_number + base_release_number - 1);
-}%{?-e:.%{-e*}}%{?-s:.%{-s*}}%{!?-n:%{?dist}}
-## END: Set by rpmautospec
-
+# 启用 Fedora 加固编译：PIE、栈保护、-D_FORTIFY_SOURCE 等安全编译选项
 %global  _hardened_build     1
+# 定义 nginx 运行用户/组的名称，供 configure 的 --user/--group 及 %%files 权限使用
 %global  nginx_user          nginx
 
-# Disable strict symbol checks in the link editor.
-# See: https://src.fedoraproject.org/rpms/redhat-rpm-config/c/078af19
+# 关闭链接器的严格符号检查：取消定义 _strict_symbol_defs_build 宏
+# 参见：https://src.fedoraproject.org/rpms/redhat-rpm-config/c/078af19
 %undefine _strict_symbol_defs_build
 
+# 在 Fedora 上，或 EPEL 版本为 8
 %if 0%{?fedora} || 0%{?epel} == 8
+# 默认构建 GeoIP 模块
 %bcond_without geoip
 %else
+# 默认禁用 GeoIP 模块
 %bcond_with geoip
 %endif
 
-# nginx gperftools support should be disabled for RHEL >= 8
-# see: https://bugzilla.redhat.com/show_bug.cgi?id=1931402
+# RHEL 主版本 >= 8
+# 在 RHEL 8 及以上版本应禁用 nginx 的 gperftools 支持。参见：https://bugzilla.redhat.com/show_bug.cgi?id=1931402
 %if 0%{?rhel} >= 8
+# 禁用 gperftools
 %global with_gperftools 0
 %else
-# gperftools exists only on selected arches
-# gperftools *detection* is failing on ppc64*, possibly only configure
-# bug, but disable anyway.
+# 条件：当前架构不是 s390/s390x/ppc64/ppc64le 时成立，gperftools 仅在部分架构上可用
 %ifnarch s390 s390x ppc64 ppc64le
+# 启用 gperftools
 %global with_gperftools 1
 %endif
 %endif
 
+# 启用异步文件 I/O（--with-file-aio）
 %global with_aio 1
 
+# Fedora 版本 > 40，或 RHEL 版本 > 9
 %if 0%{?fedora} > 40 || 0%{?rhel} > 9
+# 默认禁用 OpenSSL ENGINE
 %bcond_with engine
 %else
+# 默认启用 OpenSSL ENGINE
 %bcond_without engine
 %endif
 
+# Fedora 版本 > 22
 %if 0%{?fedora} > 22
+# 启用 mailcap 提供的 mime.types（即使用 nginx-mimetypes 包，不再自带 mime.types）
 %global with_mailcap_mimetypes 1
 %endif
 
-# kTLS requires OpenSSL 3.0 (default in F36+ and EL9+, available in EPEL8)
+# kTLS（内核 TLS）需要 OpenSSL 3.0：F36+ 和 EL9+ 默认提供，EPEL8 也可用
 %if 0%{?fedora} >= 36 || 0%{?rhel} >= 9 || 0%{?epel} >= 8
+# 启用 kTLS
 %global with_ktls 1
 %endif
 
-# Build against OpenSSL 3 on EL8
+# 在 EL8 上针对 OpenSSL 3 构建（EPEL 版本为 8 时）
 %if 0%{?epel} == 8
+# 指定 OpenSSL 包版本后缀为 3，用于拼接 openssl3-devel / openssl3-libs 等包名
 %global openssl_pkgversion 3
 %endif
 
-# Cf. https://www.nginx.com/blog/creating-installable-packages-dynamic-modules/
+# 定义 nginx ABI 版本，这里直接等于软件版本号，用于 Provides: nginx(abi)
+# 参见 nginx 官方关于动态模块打包的说明：https://www.nginx.com/blog/creating-installable-packages-dynamic-modules/
 %global nginx_abiversion %{version}
 
+# 动态模块 .so 的安装目录（如 /usr/lib64/nginx/modules）
 %global nginx_moduledir %{_libdir}/nginx/modules
+# 动态模块的 load_module 配置片段目录（如 /usr/share/nginx/modules）
 %global nginx_moduleconfdir %{_datadir}/nginx/modules
+# 安装到系统中的 nginx 源码目录，供外部模块编译时使用
 %global nginx_srcdir %{_usrsrc}/%{name}-%{version}-%{release}
 
-# Do not generate provides/requires from nginx sources
+# 排除该源码目录，避免 RPM 自动扫描其内容产生错误的 Provides
 %global __provides_exclude_from ^%{nginx_srcdir}/.*$
+# 同样排除该目录，避免产生错误的 Requires
 %global __requires_exclude_from ^%{nginx_srcdir}/.*$
 
+# 第三方模块 ngx-fancyindex 的版本号
 %global fancy_version 0.6.0
 
 Name:              nginx
 Epoch:             2
 Version:           1.30.6
-Release:           %autorelease
+# %%{?dist} 会自动追加发行版标识（如 .fc43、.el9），禁用
+Release:           1
 
-Summary:           A high performance web server and reverse proxy server
+Summary:           高性能 Web 服务器和反向代理服务器
 License:           BSD-2-Clause
 URL:               https://nginx.org
 
 Source0:           https://nginx.org/download/nginx-%{version}.tar.gz
+# 源码包的 PGP 签名文件，用于校验源码完整性
 Source1:           https://nginx.org/download/nginx-%{version}.tar.gz.asc
-# Keys are found here: https://nginx.org/en/pgp_keys.html
+# 上游开发者 Roman Arutyunyan 的 PGP 公钥，获取地址：https://nginx.org/en/pgp_keys.html
 Source3:           https://nginx.org/keys/arut.key
+# 上游开发者 Sergey Kandaurov 的 PGP 公钥
 Source4:           https://nginx.org/keys/pluknet.key
+# 上游开发者 Sergey Belov 的 PGP 公钥
 Source5:           https://nginx.org/keys/sb.key
+# 上游开发者 Konstantin Pavlov 的 PGP 公钥
 Source6:           https://nginx.org/keys/thresh.key
+# 默认的 systemd 服务单元文件
 Source10:          nginx.service
+# logrotate 日志轮转配置
 Source11:          nginx.logrotate
+# 默认主配置文件
 Source12:          nginx.conf
+# 零停机升级辅助脚本
 Source13:          nginx-upgrade
+# RPM 宏模板，安装后供外部 nginx 模块构建使用
 Source15:          macros.nginxmods.in
+# RPM 依赖生成器属性文件，用于扫描 .so 模块的依赖
 Source16:          nginxmods.attr
+# 加密私钥口令交互辅助脚本
 Source17:          nginx-ssl-pass-dialog
+# systemd 模板服务单元，用于启动 nginx 实例（nginx@NAME.service）
 Source18:          nginx@.service
+# systemd-sysusers 配置，用于创建 nginx 用户/组
 Source19:          nginx.sysusers
+# systemd-tmpfiles 配置，用于创建 /var 下的运行时目录（bootc 兼容）
 Source20:          nginx.tmpfiles
+# 第三方模块 ngx-fancyindex 的源码包
 Source30:          https://github.com/aperezdc/ngx-fancyindex/releases/download/v%{fancy_version}/ngx-fancyindex-%{fancy_version}.tar.xz
+# nginx 默认页使用的 logo 图片
 Source102:         nginx-logo.png
+# 说明动态模块用法的文档
 Source200:         README.dynamic
+# nginx 实例模式的配置模板
 Source220:         instance.conf
 
-# removes -Werror in upstream build scripts.  -Werror conflicts with
-# -D_FORTIFY_SOURCE=2 causing warnings to turn into errors.
+# 移除上游构建脚本中的 -Werror。-Werror 与 -D_FORTIFY_SOURCE=2 冲突，会把警告变成错误导致构建失败
 Patch0:            0001-remove-Werror-in-upstream-build-scripts.patch
 
-# downstream patch - fix PIDFile race condition (rhbz#1869026)
-# rejected upstream: https://trac.nginx.org/nginx/ticket/1897
+# 修复 PID 文件竞态条件（见 rhbz#1869026）。该补丁未被上游接受，参见：https://trac.nginx.org/nginx/ticket/1897
 Patch1:            0002-fix-PIDFile-handling.patch
 
-# downstream patch - Add ssl-pass-phrase-dialog helper script for
-# encrypted private keys with pass phrase decryption
+# 为带口令的加密私钥增加 ssl_pass_phrase_dialog 辅助脚本支持
 Patch2:            0003-Add-SSL-passphrase-dialog.patch
 
-# downstream patch - Disable ENGINE support by default for F41+
+# 在 Fedora41+ 上默认禁用 OpenSSL ENGINE 支持
 Patch3:            0004-Disable-ENGINE-support.patch
 
-# downstream patch - Compile perl module with O2
+# 以 -O2 优化级别编译 Perl 模块
 Patch4:            0005-Compile-perl-module-with-O2.patch
 
 BuildRequires:     make
 BuildRequires:     gcc
+# Fedora > 42
 %if 0%{?fedora} > 42
+# 使用 openpgpverify 工具校验源码签名
 BuildRequires:     openpgpverify
 %else
+# 使用 gnupg2（gpgverify 宏）校验源码签名
 BuildRequires:     gnupg2
 %endif
+# 若启用 gperftools
 %if 0%{?with_gperftools}
 BuildRequires:     gperftools-devel
 %endif
@@ -132,46 +161,55 @@ BuildRequires:     libxcrypt-devel
 BuildRequires:     openssl%{?openssl_pkgversion}-devel
 BuildRequires:     pcre2-devel
 BuildRequires:     perl-podlators
+# Fedora，或 RHEL>=10，或 EPEL>=9
 %if 0%{?fedora} || 0%{?rhel} >= 10 || 0%{?epel} >= 9
 BuildRequires:     zlib-ng-devel
 %else
 BuildRequires:     zlib-devel
 %endif
 
+# 运行时依赖
 Requires:          nginx-filesystem = %{epoch}:%{version}-%{release}
 Requires:          system-logos-httpd
 
+# 提供虚拟能力 webserver，供其他包按能力依赖
 Provides:          webserver
+# 推荐安装 logrotate（非强制依赖）
 Recommends:        logrotate
+# 运行时依赖
 Requires:          %{name}-core = %{epoch}:%{version}-%{release}
 
 BuildRequires:     systemd
 BuildRequires:     systemd-rpm-macros
+# 若定义了 systemd_requires 宏则展开，加入相应的脚本依赖
 %{?systemd_requires}
 
 %description
-Nginx is a web server and a reverse proxy server for HTTP, SMTP, POP3 and
-IMAP protocols, with a strong focus on high concurrency, performance and low
-memory usage.
+Nginx 是一个用于 HTTP、SMTP、POP3 和 IMAP 协议的 Web 服务器和反向代理服务器，
+其重点在于高并发、高性能和低内存占用。
+
 
 %package core
-Summary: nginx minimal core
+Summary: nginx 最小核心
+# 启用了 mailcap 的 mime.types
 %if 0%{?with_mailcap_mimetypes}
 Requires:          nginx-mimetypes
 %endif
 Requires:          openssl%{?openssl_pkgversion}-libs
 Requires(pre):     nginx-filesystem
+# 与 nginx（< 1:1.20.2-4）冲突，避免混装
 Conflicts:         nginx < 1:1.20.2-4
-# For external nginx modules
+# 声明 nginx 的 ABI 版本，供外部 nginx 模块依赖使用
 Provides:          nginx(abi) = %{nginx_abiversion}
 
 %description core
-nginx minimal core
+nginx 最小核心
 
 %package all-modules
-Summary:           A meta package that installs all available Nginx modules
+Summary:           一个元包，用于安装所有可用的 Nginx 模块
 BuildArch:         noarch
 
+# 启用了 GeoIP
 %if %{with geoip}
 Requires:          nginx-mod-http-geoip = %{epoch}:%{version}-%{release}
 Requires:          nginx-mod-stream-geoip = %{epoch}:%{version}-%{release}
@@ -183,50 +221,47 @@ Requires:          nginx-mod-mail = %{epoch}:%{version}-%{release}
 Requires:          nginx-mod-stream = %{epoch}:%{version}-%{release}
 
 %description all-modules
-Meta package that installs all available nginx modules.
+安装所有可用 nginx 模块的元包
 
 %package filesystem
-Summary:           The basic directory layout for the Nginx server
+Summary:           Nginx 服务器的基本目录结构布局
 BuildArch:         noarch
-# RHEL 9 compat, remove after RHEL 9 EOL
+# 若定义了 sysusers_requires_compat 宏则展开，加入 RHEL9 兼容的 sysusers 依赖
 %{?sysusers_requires_compat}
 
-
 %description filesystem
-The nginx-filesystem package contains the basic directory layout
-for the Nginx server including the correct permissions for the
-directories.
+nginx-filesystem 软件包包含 Nginx 服务器的基本目录结构，包括各目录的正确权限设置
 
 %if %{with geoip}
 %package mod-http-geoip
-Summary:           Nginx HTTP geoip module
+Summary:           Nginx HTTP 地理位置模块(geoip)
 BuildRequires:     GeoIP-devel
 Requires:          nginx(abi) = %{nginx_abiversion}
 
 %description mod-http-geoip
-%{summary}.
+%{summary}
 
 %package mod-stream-geoip
-Summary:           Nginx stream geoip module
+Summary:           Nginx 流媒体地理 IP 模块
 BuildRequires:     GeoIP-devel
 Requires:          nginx(abi) = %{nginx_abiversion}
 Requires:          nginx-mod-stream = %{epoch}:%{version}-%{release}
 
 %description mod-stream-geoip
-%{summary}.
+%{summary}
 %endif
 
 %package mod-http-image-filter
-Summary:           Nginx HTTP image filter module
+Summary:           Nginx HTTP 图像过滤模块
 BuildRequires:     gd-devel
 Requires:          nginx(abi) = %{nginx_abiversion}
 Requires:          gd
 
 %description mod-http-image-filter
-%{summary}.
+%{summary}
 
 %package mod-http-perl
-Summary:           Nginx HTTP perl module
+Summary:           Nginx HTTP Perl 模块
 BuildRequires:     perl-devel
 BuildRequires:     perl-generators
 BuildRequires:     perl(ExtUtils::Embed)
@@ -234,32 +269,32 @@ Requires:          nginx(abi) = %{nginx_abiversion}
 Requires:          perl(constant)
 
 %description mod-http-perl
-%{summary}.
+%{summary}
 
 %package mod-http-xslt-filter
-Summary:           Nginx XSLT module
+Summary:           Nginx XSLT 模块
 BuildRequires:     libxslt-devel
 Requires:          nginx(abi) = %{nginx_abiversion}
 
 %description mod-http-xslt-filter
-%{summary}.
+%{summary}
 
 %package mod-mail
-Summary:           Nginx mail modules
+Summary:           Nginx 邮件模块
 Requires:          nginx(abi) = %{nginx_abiversion}
 
 %description mod-mail
-%{summary}.
+%{summary}
 
 %package mod-stream
-Summary:           Nginx stream modules
+Summary:           Nginx 流模块
 Requires:          nginx(abi) = %{nginx_abiversion}
 
 %description mod-stream
-%{summary}.
+%{summary}
 
 %package mod-devel
-Summary:           Nginx module development files
+Summary:           NGinX 模块开发文件
 Requires:          nginx = %{epoch}:%{version}-%{release}
 Requires:          make
 Requires:          gcc
@@ -275,6 +310,7 @@ Requires:          openssl%{?openssl_pkgversion}-devel
 Requires:          pcre2-devel
 Requires:          perl-devel
 Requires:          perl(ExtUtils::Embed)
+# Fedora，或 RHEL>=10，或 EPEL>=9
 %if 0%{?fedora} || 0%{?rhel} >= 10 || 0%{?epel} >= 9
 BuildRequires:     zlib-ng-devel
 %else
@@ -282,47 +318,116 @@ BuildRequires:     zlib-devel
 %endif
 
 %description mod-devel
-%{summary}.
+%{summary}
 
 
+# %%prep 阶段：解压源码、校验签名、应用补丁、准备构建目录。
 %prep
-# Combine all keys from upstream into one file
+# 将上游所有 PGP 公钥（Source3/4/5/6）合并到一个 keyring 文件 nginx.gpg 中
 cat %{S:3} %{S:4} %{S:5} %{S:6} > %{_builddir}/%{name}.gpg
+# Fedora > 42
 %if 0%{?fedora} > 42
+# 使用 openpgpverify 校验源码包签名
 %{openpgpverify} --keyring='%{_builddir}/%{name}.gpg' --signature='%{SOURCE1}' --data='%{SOURCE0}'
 %else
+# 使用 gpgverify 校验源码包签名
 %{gpgverify} --keyring='%{_builddir}/%{name}.gpg' --signature='%{SOURCE1}' --data='%{SOURCE0}'
 %endif
+# 自动解压 Source0 并按顺序应用所有补丁
 %autosetup -p1
+# 把 README.dynamic、service 单元、nginx.conf、实例 service、instance.conf 复制到源码根目录
 cp %{SOURCE200} %{SOURCE10} %{SOURCE12} %{SOURCE18} %{SOURCE220} .
 
+# 定义了 openssl_pkgversion（即 EPEL8 使用 OpenSSL 3）
 %if 0%{?openssl_pkgversion}
+# 修改 nginx 的 OpenSSL 探测配置，把头文件路径和库路径指向 openssl3 的私有目录
 sed \
   -e 's|\(ngx_feature_path=\)$|\1%{_includedir}/openssl%{openssl_pkgversion}|' \
   -e 's|\(ngx_feature_libs="\)|\1-L%{_libdir}/openssl%{openssl_pkgversion} |' \
   -i auto/lib/openssl/conf
 %endif
 
-# Prepare template config for instances
+# 用 sed 替换 nginx.conf 中 error_log/pid/access_log 的文件名，加入实例名占位符，并追加到 instance.conf
 sed -e '/^error_log /s|error\.log|@INSTANCE@_error.log|' \
     -e '/^pid /s|nginx\.pid|nginx-@INSTANCE@.pid|' \
     -e '/^ *access_log/s|access\.log|@INSTANCE@_access.log|' \
     nginx.conf >> instance.conf
+# 将 instance.conf 的时间戳对齐到 nginx.conf，避免构建产物时间戳异常
 touch -r %{SOURCE12} instance.conf
 
-# Prepare sources for installation
+# 准备要安装到系统中的源码副本（供外部模块编译）：递归复制源码树为带 release 号的目录
 cp -a ../%{name}-%{version} ../%{name}-%{version}-%{release}-src
+# 将复制后的源码目录移动到当前构建目录
 mv ../%{name}-%{version}-%{release}-src .
 
 # =============================================================== #
+# 解压 ngx-fancyindex 的 .tar.xz 源码包
 tar -xJf %{SOURCE30}
+# 定义 fancyindex 模块源码目录路径，供 configure 的 --add-module 使用
 %global fancydir %{_builddir}/%{name}-%{version}/ngx-fancyindex-%{fancy_version}
 # =============================================================== #
 
+# %%build 阶段：执行 configure 并编译
 %build
-# nginx does not utilize a standard configure script.  It has its own
-# and the standard configure options cause the nginx configure script
-# to error out.
+# nginx 不使用标准 configure 脚本，它有自己的 configure；使用标准 autotools 选项会导致其报错退出
+# ---------------------------------------------------------------------------
+# 下列 configure 选项逐项说明：
+#   --prefix=...                      安装前缀（运行时数据目录 /usr/share/nginx）
+#   --sbin-path=...                   nginx 主程序安装路径
+#   --modules-path=...                动态模块 .so 安装目录
+#   --conf-path=...                   主配置文件路径
+#   --error-log-path=...              错误日志默认路径
+#   --http-log-path=...               HTTP 访问日志默认路径
+#   --http-client-body-temp-path=...  客户端请求体临时文件目录
+#   --http-proxy-temp-path=...        反向代理临时文件目录
+#   --http-fastcgi-temp-path=...      FastCGI 临时文件目录
+#   --http-uwsgi-temp-path=...        uWSGI 临时文件目录
+#   --http-scgi-temp-path=...         SCGI 临时文件目录
+#   --pid-path=...                    PID 文件路径
+#   --lock-path=...                   锁文件路径
+#   --user= / --group=                worker 进程运行用户/组
+#   --with-compat                     生成与动态模块兼容的二进制（稳定 ABI）
+#   --with-debug                      启用调试日志支持
+#   --add-module=...                  编译第三方模块（fancyindex 目录美化）
+#   --with-file-aio                   启用异步文件 I/O
+#   --with-google_perftools_module    启用 gperftools 性能分析模块
+#   --with-http_addition_module       响应内容追加/前置模块
+#   --with-http_auth_request_module   子请求鉴权模块
+#   --with-http_dav_module            WebDAV 模块
+#   --with-http_degradation_module    内存不足时降级返回 444 的模块
+#   --with-http_flv_module            FLV 伪流媒体模块
+#   --with-http_geoip_module=dynamic  HTTP GeoIP 模块（动态编译）
+#   --with-stream_geoip_module=dynamic stream 层 GeoIP 模块（动态编译）
+#   --with-http_gunzip_module         为不支持 gzip 的客户端解压响应
+#   --with-http_gzip_static_module    发送预压缩的 .gz 静态文件
+#   --with-http_image_filter_module=dynamic 图片缩放/裁剪模块（动态编译）
+#   --with-http_mp4_module            MP4 伪流媒体模块
+#   --with-http_perl_module=dynamic   Perl 嵌入模块（动态编译）
+#   --with-http_random_index_module   随机选择目录索引文件
+#   --with-http_realip_module         从代理头恢复客户端真实 IP
+#   --with-http_secure_link_module    安全链接（防盗链/签名 URL）
+#   --with-http_slice_module          大文件分片请求模块
+#   --with-http_ssl_module            HTTPS/TLS 支持
+#   --with-http_stub_status_module    运行状态统计接口
+#   --with-http_sub_module            响应内容替换模块
+#   --with-http_v2_module             HTTP/2 支持
+#   --with-http_v3_module             HTTP/3（QUIC）支持
+#   --with-http_xslt_module=dynamic   XSLT 转换模块（动态编译）
+#   --with-mail=dynamic               mail 代理模块（动态编译）
+#   --with-mail_ssl_module            mail 代理的 SSL 支持
+#   --with-openssl-opt=enable-ktls    启用内核 TLS（kTLS）加速
+#   --without-engine                  禁用 OpenSSL ENGINE 支持
+#   --with-pcre                       使用 PCRE 正则库
+#   --with-pcre-jit                   启用 PCRE JIT 编译加速
+#   --with-stream=dynamic             TCP/UDP 四层代理模块（动态编译）
+#   --with-stream_realip_module       stream 层真实 IP 恢复
+#   --with-stream_ssl_module          stream 层 SSL 支持
+#   --with-stream_ssl_preread_module  stream 层 SNI 预读（按域名分流）
+#   --with-threads                    启用线程池
+#   --with-cc-opt=...                 传给编译器的额外参数（RPM 优化标志）
+#   --with-ld-opt=...                 传给链接器的额外参数
+# 若 configure 失败，则打印 autoconf.err 便于排查并退出。
+# ---------------------------------------------------------------------------
 if ! ./configure \
     --prefix=%{_datadir}/nginx \
     --sbin-path=%{_sbindir}/nginx \
@@ -389,149 +494,216 @@ if ! ./configure \
     --with-threads \
     --with-cc-opt="%{optflags}" \
     --with-ld-opt="$RPM_LD_FLAGS"; then
+# 空操作占位，表示 configure 失败
   : configure failed
+# 输出 configure 生成的错误详情，便于定位
   cat objs/autoconf.err
+# 以失败状态退出构建
   exit 1
 fi
 
+# 调用 make 进行编译（使用 RPM 并行构建宏）
 %make_build
 
 
+# %%install 阶段：把编译产物安装到 buildroot 虚拟根目录
 %install
+# 执行 make install；INSTALLDIRS=vendor 指定 Perl 模块安装到发行版目录
 %make_install INSTALLDIRS=vendor
 
+# 删除 Perl 的 .packlist 文件（不应打包）
 find %{buildroot} -type f -name .packlist -exec rm -f '{}' \;
+# 删除 perllocal.pod（Perl 本地安装记录，不应打包）
 find %{buildroot} -type f -name perllocal.pod -exec rm -f '{}' \;
+# 删除所有空文件
 find %{buildroot} -type f -empty -exec rm -f '{}' \;
+# 将 .so 动态库权限设为 0755（可执行）
 find %{buildroot} -type f -iname '*.so' -exec chmod 0755 '{}' \;
 
+# 安装默认 systemd 服务单元
 install -p -D -m 0644 ./nginx.service \
     %{buildroot}%{_unitdir}/nginx.service
+# 安装 systemd 模板服务单元（实例模式）
 install -p -D -m 0644 ./nginx@.service \
     %{buildroot}%{_unitdir}/nginx@.service
+# 安装 logrotate 配置
 install -p -D -m 0644 %{SOURCE11} \
     %{buildroot}%{_sysconfdir}/logrotate.d/nginx
 
+# 创建 /etc/systemd/system/nginx.service.d drop-in 目录
 install -p -d -m 0755 %{buildroot}%{_sysconfdir}/systemd/system/nginx.service.d
+# 创建 /usr/lib/systemd/system/nginx.service.d drop-in 目录
 install -p -d -m 0755 %{buildroot}%{_unitdir}/nginx.service.d
 
+# 创建 /etc/nginx/conf.d 目录
 install -p -d -m 0755 %{buildroot}%{_sysconfdir}/nginx/conf.d
+# 创建 /etc/nginx/default.d 目录
 install -p -d -m 0755 %{buildroot}%{_sysconfdir}/nginx/default.d
 
+# 创建 /var/lib/nginx 目录（权限 0700）。
 install -p -d -m 0700 %{buildroot}%{_localstatedir}/lib/nginx
+# 创建 /var/lib/nginx/tmp 临时目录（权限 0700）。
 install -p -d -m 0700 %{buildroot}%{_localstatedir}/lib/nginx/tmp
+# 创建 /var/log/nginx 日志目录（权限 0700）。
 install -p -d -m 0700 %{buildroot}%{_localstatedir}/log/nginx
 
+# 创建 /usr/share/nginx/html 默认站点目录。
 install -p -d -m 0755 %{buildroot}%{_datadir}/nginx/html
+# 创建动态模块配置片段目录。
 install -p -d -m 0755 %{buildroot}%{nginx_moduleconfdir}
+# 创建动态模块 .so 目录。
 install -p -d -m 0755 %{buildroot}%{nginx_moduledir}
 
+# 安装默认主配置文件 nginx.conf
 install -p -m 0644 ./nginx.conf \
     %{buildroot}%{_sysconfdir}/nginx
 
+# 删除上游自带的 index.html
 rm -f %{buildroot}%{_datadir}/nginx/html/index.html
+# 删除上游自带的 50x.html 错误页
 rm -f %{buildroot}%{_datadir}/nginx/html/50x.html
 
+# 将默认首页软链接到发行版统一的 testpage 页面
 ln -s ../../testpage/index.html \
       %{buildroot}%{_datadir}/nginx/html/index.html
+# 安装 nginx logo 图片
 install -p -m 0644 %{SOURCE102} \
     %{buildroot}%{_datadir}/nginx/html
+# 创建 poweredby.png 软链接指向 logo
 ln -s nginx-logo.png %{buildroot}%{_datadir}/nginx/html/poweredby.png
+# 创建 icons 目录
 mkdir -p %{buildroot}%{_datadir}/nginx/html/icons
 
-# Symlink for the powered-by-$DISTRO image:
+# 软链接到发行版 pixmaps 中的 poweredby.png，为发行版专属的 powered-by 图片创建软链接
 ln -s ../../../pixmaps/poweredby.png \
       %{buildroot}%{_datadir}/nginx/html/icons/poweredby.png
 
+# RHEL >= 9
 %if 0%{?rhel} >= 9
+# 软链接到发行版的无索引页面 logo
 ln -s ../../pixmaps/system-noindex-logo.png \
       %{buildroot}%{_datadir}/nginx/html/system_noindex_logo.png
 %endif
 
+# 使用 mailcap 提供的 mime.types
 %if 0%{?with_mailcap_mimetypes}
+# 删除 nginx 自带的 mime.types（改由 nginx-mimetypes 包提供）
 rm -f %{buildroot}%{_sysconfdir}/nginx/mime.types
 %endif
 
+# 安装 nginx 主程序 man 手册
 install -p -D -m 0644 %{_builddir}/nginx-%{version}/objs/nginx.8 \
     %{buildroot}%{_mandir}/man8/nginx.8
 
+# 安装零停机升级脚本 nginx-upgrade
 install -p -D -m 0755 %{SOURCE13} %{buildroot}%{_bindir}/nginx-upgrade
+# 用 pod2man 从脚本内嵌 POD 生成 nginx-upgrade 的 man 手册，日期取自脚本中的 "# Last updated:" 行
 pod2man --section=8 --name=nginx-upgrade \
     --release="%{version}-%{release}" \
     --center="Nginx Zero-Downtime Upgrade Utility" \
     --date="$(sed -nE 's/# Last updated: (.+)/\1/p' %{SOURCE13})" \
     %{SOURCE13} > %{buildroot}%{_mandir}/man8/nginx-upgrade.8
 
+# 遍历 vim 的四种插件类型
 for i in ftdetect ftplugin indent syntax; do
+# 安装对应的 vim 语法/缩进等插件文件
     install -p -D -m644 contrib/vim/${i}/nginx.vim \
         %{buildroot}%{_datadir}/vim/vimfiles/${i}/nginx.vim
 done
 
+# 启用了 GeoIP
 %if %{with geoip}
+# 生成 HTTP GeoIP 模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_http_geoip_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-http-geoip.conf
+# 生成 stream GeoIP 模块的 load_module 配置片段（zz- 前缀保证加载顺序靠后）
 echo 'load_module "%{nginx_moduledir}/ngx_stream_geoip_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/zz-mod-stream-geoip.conf
 %endif
+# 生成图片过滤模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_http_image_filter_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-http-image-filter.conf
+# 生成 Perl 模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_http_perl_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-http-perl.conf
+# 生成 XSLT 过滤模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_http_xslt_filter_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-http-xslt-filter.conf
+# 生成 mail 模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_mail_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-mail.conf
+# 生成 stream 模块的 load_module 配置片段
 echo 'load_module "%{nginx_moduledir}/ngx_stream_module.so";' \
     > %{buildroot}%{nginx_moduleconfdir}/mod-stream.conf
 
-# Install files for supporting nginx module builds
-## Install source files
+# 创建 /usr/src 目录
+# 安装用于支持外部 nginx 模块构建的文件，安装源码文件
 mkdir -p %{buildroot}%{_usrsrc}
+# 把源码副本移动到 /usr/src/nginx-<version>-<release>
 mv %{name}-%{version}-%{release}-src %{buildroot}%{nginx_srcdir}
-## Install rpm macros
+# 创建 RPM 宏目录
+# 安装 RPM 宏文件
 mkdir -p %{buildroot}%{_rpmmacrodir}
+# 用实际路径替换宏模板中的占位符，生成 macros.nginxmods
 sed -e "s|@@NGINX_ABIVERSION@@|%{nginx_abiversion}|g" \
     -e "s|@@NGINX_MODDIR@@|%{nginx_moduledir}|g" \
     -e "s|@@NGINX_MODCONFDIR@@|%{nginx_moduleconfdir}|g" \
     -e "s|@@NGINX_SRCDIR@@|%{nginx_srcdir}|g" \
     %{SOURCE15} > %{buildroot}%{_rpmmacrodir}/macros.nginxmods
-## Install dependency generator
+# 安装 nginxmods.attr，供 RPM 扫描模块依赖
+# 安装依赖生成器
 install -Dpm0644 %{SOURCE16} %{buildroot}%{_fileattrsdir}/nginxmods.attr
 
-# install http-ssl-pass-dialog
+# 创建 libexec 目录
+# 安装 SSL 口令交互脚本
 mkdir -p %{buildroot}%{_libexecdir}
+# 安装 nginx-ssl-pass-dialog 脚本
 install -m755 %{SOURCE17} \
         %{buildroot}%{_libexecdir}/nginx-ssl-pass-dialog
 
-# install sysusers file
+# 安装 nginx.sysusers 到 sysusers 目录
+# 安装 sysusers 配置
 install -p -D -m 0644 %{SOURCE19} %{buildroot}%{_sysusersdir}/nginx.conf
 
-# tmpfiles.d configuration
+# 创建 tmpfiles.d 目录
+# 安装 tmpfiles.d 配置
 mkdir -p %{buildroot}%{_tmpfilesdir}
+# 安装 nginx.tmpfiles 到 tmpfiles.d 目录
 install -m 644 -p %{SOURCE20} %{buildroot}%{_tmpfilesdir}/nginx.conf
 
 
+# nginx-filesystem 子包的 %%pre 脚本（安装前执行）
 %pre filesystem
-# RHEL 9 compat, remove after RHEL 9 EOL
+# 使用 sysusers 兼容宏创建 nginx 用户/组（RHEL9 兼容方式）
 %sysusers_create_compat %{SOURCE19}
 
+# 主包的 %%post 脚本（安装后执行）
 %post
+# 执行 systemd 标准的安装后处理（daemon-reload、enable 等）
 %systemd_post nginx.service
 
+# 主包的 %%preun 脚本（卸载前执行）
 %preun
+# 执行 systemd 标准的卸载前处理（stop/disable 等）
 %systemd_preun nginx.service
 
+# 主包的 %%postun 脚本（卸载后执行）
 %postun
+# 执行 systemd 标准的卸载后处理（daemon-reload 等）
 %systemd_postun nginx.service
 
-# Request zero-downtime upgrade upon installation of a new nginx binary or modules
-# A reload is not sufficient here: https://blog.nginx.org/blog/nginx-dynamic-modules-how-they-work#upgradeMod
+# 文件触发器：当这些路径下的文件被安装/更新时执行下列脚本
+# 当新的 nginx 二进制或模块被安装时，请求零停机升级。
+# 此处仅 reload 不够，原因见：
+# https://blog.nginx.org/blog/nginx-dynamic-modules-how-they-work#upgradeMod
 %transfiletriggerin -- %{_sbindir}/nginx %{nginx_moduleconfdir} %{nginx_moduledir}
+# 仅在实际安装（非卸载）时执行
 if [ $1 -ge 1 ]; then
+# 若不存在禁用标记文件，则执行 nginx-upgrade 做零停机升级；失败也不影响事务
     test -f %{_sysconfdir}/nginx/rpm-disable-upgrade || /usr/bin/nginx-upgrade >/dev/null 2>&1 || :
 fi
 
-
+# 打包文件清单
 %files
 %doc instance.conf
 %{_datadir}/nginx/html/*
@@ -628,812 +800,9 @@ fi
 %{_fileattrsdir}/nginxmods.attr
 %{nginx_srcdir}/
 
-
 %changelog
-## START: Generated by rpmautospec
-* Wed Oct 14 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.6-1
-- update to 1.30.6
-- fixes CVE-2026-15176, CVE-2026-93479, CVE-2026-95101, CVE-2026-97629,
-  CVE-2026-97205
-
-* Fri Oct 09 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.5-2
-- use openpgpverify on Fedora 43+
-
-* Tue Sep 15 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.5-1
-- update to 1.30.5
-- fixes CVE-2026-90439
-
-* Thu Sep 10 2026 Zbigniew Jędrzejewski-Szmek <zbyszek@amutable.com> - 2:1.30.4-4
-- Rebuilt for libxml-2.5.4
-
-* Thu Jul 30 2026 Joe Orton <jorton@redhat.com> - 2:1.30.4-3
-- add rpminspect waiver - avoid "lastpayload" warning for nginx-all-modules
-  which is expected to be empty (no payload).
-
-* Wed Jul 22 2026 Jitka Plesnikova <jplesnik@redhat.com> - 2:1.30.4-2
-- Perl 5.44 rebuild
-
-* Sun Jul 19 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.4-1
-- update to 1.30.4
-- fixes CVE-2026-42533, CVE-2026-60005, CVE-2026-56434
-
-* Thu Jul 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 2:1.30.3-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_45_Mass_Rebuild
-
-* Wed Jun 17 2026 Yaakov Selkowitz <yselkowi@redhat.com> - 2:1.30.3-2
-- Rebuilt for openssl 4.0
-
-* Wed Jun 17 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.3-1
-- update to 1.30.3
-- fixes CVE-2026-42055, CVE-2026-42530 and CVE-2026-48142
-
-* Fri Jun 12 2026 Yaakov Selkowitz <yselkowi@redhat.com> - 2:1.30.2-2
-- Rebuilt for openssl 4.0
-
-* Fri May 22 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.2-1
-- update to 1.30.2
-- fixes CVE-2026-9256
-
-* Wed May 13 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.1-1
-- update to 1.30.1
-- fixes CVE-2026-42926, CVE-2026-42945, CVE-2026-42946, CVE-2026-42934,
-  CVE-2026-40460 and CVE-2026-40701
-
-* Wed Apr 15 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.30.0-1
-- update to 1.30.0
-- drop upstreamed manpage patch - https://github.com/nginx/nginx/pull/1089
-- refresh other patches
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.3-1
-- Update to 1.28.3
-- fixes CVE-2026-27654, CVE-2026-27784, CVE-2026-32647, CVE-2026-27651,
-  CVE-2026-28753, CVE-2026-28755
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-9
-- Spec file and macro cleanups
-- move some files into the packages that have the dependencies they rely on
-  (e.g. systemd, logrotate are not present in nginx-core, so don't install
-  files pertaining to them there)
-- remove unused LDFLAGS and DESTDIR overrides, for perl we patch the
-  Makefile.PL already
-- use zlib-ng-devel dependency also in nginx-mod-devel
-- improve macro consistency
-- sync configure command in macros.nginxmods.in with main package
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-8
-- Use systemctl kill in logrotate postrotate script
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-7
-- Use file triggers to reload dynamic modules upon upgrade
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-6
-- Rewrite nginx-upgrade to support instances
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-5
-- Move modular configuration file include after default host
-- fixes rhbz#2413647
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-4
-- Fix RHEL 8 & 9 compatibility
-- Fix SSL passphrase dialog patch when used with OpenSSL < 3 (EL8 w/o EPEL)
-- Build now works with and without EPEL enabled
-
-* Wed Mar 25 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-3
-- Build GeoIP module by default on Fedora and EPEL8
-- fixes rhbz#2445461
-
-* Thu Mar 05 2026 Timothée Ravier <tim@siosm.fr> - 2:1.28.2-2
-- Move ABI 'Provides' to the core sub package
-
-* Wed Feb 04 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.2-1
-- Update to 1.28.2
-- fixes CVE-2026-1642
-- move log directory to nginx-filesystem subpackage (PR#20)
-- delete Maxim Dounin's key, it's no longer listed on the nginx website
-
-* Wed Feb 04 2026 Nicolas Chauvet <kwizart@gmail.com> - 2:1.28.1-6
-- Move log/nginx in filesystem sub-package
-
-* Tue Jan 27 2026 Luboš Uhliarik <luhliari@redhat.com> - 2:1.28.1-5
-- Clarify binding behavior of -t option.
-
-* Fri Jan 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 2:1.28.1-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild
-
-* Fri Jan 02 2026 Felix Kaechele <felix@kaechele.ca> - 2:1.28.1-3
-- cleanups and fixes
-- remove RHEL 7 compatibility
-- add RHEL 9 compatibility and EOL comments
-- restore RHEL 8 compatibility
-
-* Sat Dec 27 2025 Aleksei Bavshin <alebastr@fedoraproject.org> - 2:1.28.1-2
-- Fix crash in stream SSL configuration (rhbz#2421955)
-
-* Wed Dec 24 2025 Felix Kaechele <felix@kaechele.ca> - 2:1.28.1-1
-- update to 1.28.1
-
-* Thu Nov 20 2025 Luboš Uhliarik <luhliari@redhat.com> - 2:1.28.0-5
-- Remove 50x.html from the nginx-core package
-
-* Tue Sep 16 2025 Luboš Uhliarik <luhliari@redhat.com> - 2:1.28.0-4
-- Add tmpfiles.d rules for /var directories (bootc compatibility)
-
-* Thu Jul 24 2025 Fedora Release Engineering <releng@fedoraproject.org> - 2:1.28.0-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_43_Mass_Rebuild
-
-* Wed Jul 09 2025 Jitka Plesnikova <jplesnik@redhat.com> - 2:1.28.0-2
-- Perl 5.42 re-rebuild updated packages
-
-* Tue Jul 08 2025 Luboš Uhliarik <luhliari@redhat.com> - 2:1.28.0-1
-- update to 1.28.0
-- rewritten 0003-Add-SSL-passphrase-dialog.patch
-- README renamed to README.md
-
-* Mon Jul 07 2025 Jitka Plesnikova <jplesnik@redhat.com> - 2:1.26.3-2
-- Perl 5.42 rebuild
-
-* Thu Feb 06 2025 Felix Kaechele <felix@kaechele.ca> - 2:1.26.3-1
-- update to 1.26.3
-- fixes SSL session reuse vulnerability (CVE-2025-23419)
-- drop zlib-ng patch, the issue was addressed upstream
-
-* Wed Feb 05 2025 Luboš Uhliarik <luhliari@redhat.com> - 2:1.26.2-6
-- Use systemd-sysusers
-
-* Mon Feb 03 2025 Joe Orton <jorton@redhat.com> - 2:1.26.2-5
-- Add systemd instantiated service nginx@.service, allowing e.g. "systemctl
-  start nginx@foobar.service" to start an instance of nginx using
-  /etc/nginx/foobar.conf as the configuration.
-
-* Sat Feb 01 2025 Björn Esser <besser82@fedoraproject.org> - 2:1.26.2-4
-- Add explicit BR: libxcrypt-devel
-
-* Sat Feb 01 2025 Felix Kaechele <felix@kaechele.ca> - 2:1.26.2-3
-- Add zlib-ng patch to fix rhbz#2343318
-
-* Fri Jan 17 2025 Fedora Release Engineering <releng@fedoraproject.org> - 2:1.26.2-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_42_Mass_Rebuild
-
-* Fri Aug 16 2024 Felix Kaechele <felix@kaechele.ca> - 2:1.26.2-1
-- Update to 1.26.2
-- fixes CVE-2024-7347
-
-* Wed Jul 31 2024 Luboš Uhliarik <luhliari@redhat.com> - 2:1.26.1-6
-- Compile perl module with -O2 optimalization
-
-* Wed Jul 31 2024 Luboš Uhliarik <luhliari@redhat.com> - 2:1.26.1-5
-- Add -O2 to nginx.so
-
-* Thu Jul 18 2024 Fedora Release Engineering <releng@fedoraproject.org> - 2:1.26.1-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_41_Mass_Rebuild
-
-* Tue Jul 02 2024 Luboš Uhliarik <luhliari@redhat.com> - 2:1.26.1-3
-- Disable ENGINE support by default for F41+, add engine bcond
-
-* Mon Jun 10 2024 Jitka Plesnikova <jplesnik@redhat.com> - 2:1.26.1-2
-- Perl 5.40 rebuild
-
-* Fri May 31 2024 Luboš Uhliarik <luhliari@redhat.com> - 2:1.26.1-1
-- Increase nginx's epoch to avoid possible regression in CentOS/RHEL
-  (CS-2046)
-
-* Thu May 30 2024 Felix Kaechele <felix@kaechele.ca> - 1:1.26.1-1
-- update to 1.26.1
-- fixes CVE-2024-32760, CVE-2024-31079, CVE-2024-35200, CVE-2024-34161
-
-* Wed May 22 2024 Luboš Uhliarik <luhliari@redhat.com> - 1:1.26.0-3
-- Fix possible segfault introduced in patch which adds ssl-pass-phrase-
-  dialog directive
-- Add back Maxim's PGP removed by mistake
-- Add actual fix of the patch
-
-* Wed May 22 2024 Luboš Uhliarik <luhliari@redhat.com> - 1:1.26.0-2
-- Fix possible segfault introduced in patch which adds ssl-pass-phrase-
-  dialog directive
-
-* Sun Apr 28 2024 Felix Kaechele <felix@kaechele.ca> - 1:1.26.0-1
-- update to 1.26.0
-- add Sergey Kandaurov's PGP public key
-- add Roman Arutyunyan's PGP public key
-- remove Maxim Dounin's PGP public key
-- enable experimental HTTP/3 module
-- refresh patches
-- update default config http2 directive
-- remove outdated custom error pages, reducing maintenance burden
-
-* Thu Jan 25 2024 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.24.0-8
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_40_Mass_Rebuild
-
-* Sun Jan 21 2024 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.24.0-7
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_40_Mass_Rebuild
-
-* Sat Sep 09 2023 Felix Kaechele <felix@kaechele.ca> - 1:1.24.0-6
-- Use SPDX license identifier in License tag
-
-* Mon Aug 07 2023 Luboš Uhliarik <luhliari@redhat.com> - 1:1.24.0-5
-- Related: #2224582 - Running nginx with systemctl and entering ssl private
-  key's pass phrase
-
-* Fri Jul 21 2023 Luboš Uhliarik <luhliari@redhat.com> - 1:1.24.0-4
-- Resolves: #2224582 - Running nginx with systemctl and entering ssl
-  private key's pass phrase
-- added new ssl_pass_phrase_dialog directive which enables setting external
-  program for entering password for encrypted private key
-
-* Thu Jul 20 2023 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.24.0-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_39_Mass_Rebuild
-
-* Tue Jul 11 2023 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.24.0-2
-- Perl 5.38 rebuild
-
-* Tue Apr 11 2023 Felix Kaechele <felix@kaechele.ca> - 1:1.24.0-1
-- update to 1.24.0
-- update maxim.key (same key, new expiry date)
-
-* Thu Jan 19 2023 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.22.1-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_38_Mass_Rebuild
-
-* Wed Oct 19 2022 Felix Kaechele <felix@kaechele.ca> - 1:1.22.1-1
-- update 1.22.1
-- build against OpenSSL 3 on EL8
-- enable kTLS support
-
-* Fri Jul 22 2022 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.22.0-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_37_Mass_Rebuild
-
-* Mon Jun 27 2022 Luboš Uhliarik <luhliari@redhat.com> - 1:1.22.0-3
-- Fix nginx downgrade issue after introducing core sub-package
-
-* Mon May 30 2022 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.22.0-2
-- Perl 5.36 rebuild
-
-* Wed May 25 2022 Felix Kaechele <heffer@fedoraproject.org> - 1:1.22.0-1
-- update to 1.22.0
-- switch to pcre2
-- drop CVE-2021-3618 patch, it's upstreamed
-- add signing key of Konstantin Pavlov
-- add stream_geoip_module and stream_realip_module
-
-* Thu Mar 24 2022 Honza Horak <hhorak@redhat.com> - 1:1.20.2-4
-- Introduce core sub-package for having a daemon only with a minimal footprint
-
-* Thu Jan 20 2022 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.20.2-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_36_Mass_Rebuild
-
-* Fri Dec 17 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.2-1
-- update to 1.20.2
-
-* Mon Oct 18 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.1-9
-- fix installation of nginxmods.attr for EPEL 7
-
-* Mon Oct 18 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.1-8
-- Fix "file size changed while zipping" when rotating logs (rhbz#1980948,2015249,2015243)
-
-* Tue Sep 14 2021 Sahana Prasad <sahana@redhat.com> - 1:1.20.1-7
-- Rebuilt with OpenSSL 3.0.0
-
-* Tue Aug 10 2021 Neal Gompa <ngompa@datto.com> - 1:1.20.1-6
-- Add -mod-devel subpackage for building external nginx modules (rhbz#1989778)
-
-* Mon Aug 09 2021 Luboš Uhliarik <luhliari@redhat.com> - 1:1.20.1-5
-- Add symlink used by system-logos-httpd
-
-* Thu Jul 22 2021 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.20.1-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_35_Mass_Rebuild
-
-* Fri Jun 25 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.1-3
-- fix for CVE-2021-3618 (rhbz#1975651)
-
-* Tue Jun 01 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.1-2
-- use different fix for rhbz#1683388 as it introduced permissions issues in 1:1.20.0-2
-
-* Tue May 25 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.1-1
-- update to 1.20.1 (fixes CVE-2021-23017)
-
-* Fri May 21 2021 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.20.0-4
-- Perl 5.34 rebuild
-
-* Fri Apr 30 2021 Lubos Uhliarik <luhliari@redhat.com> - 1:1.20.0-3
-- Related: #1636235 - centralizing default index.html on nginx
-
-* Wed Apr 21 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.0-2
-- sync rawhide and EPEL7 spec files again
-- systemd service reload now checks config file (rhbz#1565377)
-- drop nginx requirement on nginx-all-modules (rhbz#1708799)
-- let nginx handle log creation on logrotate (rhbz#1683388)
-- have log directory owned by root (rhbz#1390183, CVE-2016-1247)
-- remove obsolete --with-ipv6 (src PR#8)
-- correction: pcre2 is actually not supported by nginx, reintroduce pcre
-
-* Wed Apr 21 2021 Felix Kaechele <heffer@fedoraproject.org> - 1:1.20.0-1
-- update to 1.20.0
-- sync with mainline spec file
-- order configure options alphabetically for easier comparinggit
-- add --with-compat option (rhbz#1834452)
-- add patch to fix PIDFile race condition (rhbz#1869026)
-- use pcre2 instead of pcre (rhbz#1938984)
-- add Wants=network-online.target to systemd unit (rhbz#1943779)
-
-* Mon Feb 22 2021 Lubos Uhliarik <luhliari@redhat.com> - 1:1.18.0-5
-- Resolves: #1931402 - drop gperftools module
-
-* Tue Jan 26 2021 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.18.0-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_34_Mass_Rebuild
-
-* Tue Jul 28 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.18.0-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_33_Mass_Rebuild
-
-* Mon Jun 22 2020 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.18.0-2
-- Perl 5.32 rebuild
-
-* Fri Apr 24 2020 Felix Kaechele <heffer@fedoraproject.org> - 1:1.18.0-1
-- Update to 1.18.0
-- Increased types_hash_max_size to 4096 in default config
-- Add gpg source verification
-- Add Recommends: logrotate
-- Drop location / from default config (rhbz#1564768)
-- Drop default_sever from default config (rhbz#1373822)
-
-* Wed Jan 29 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.16.1-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_32_Mass_Rebuild
-
-* Sun Sep 15 2019 Warren Togami <warren@blockstream.com>
-- add conditionals for EPEL7, see rhbz#1750857
-
-* Tue Aug 13 2019 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.16.1-1
-- Update to upstream release 1.16.1
-- Fixes CVE-2019-9511, CVE-2019-9513, CVE-2019-9516
-
-* Thu Jul 25 2019 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.16.0-5
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
-
-* Thu May 30 2019 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.16.0-4
-- Perl 5.30 rebuild
-
-* Tue May 14 2019 Stephen Gallagher <sgallagh@redhat.com> - 1.16.0-3
-- Move to common default index.html
-- Resolves: rhbz#1636235
-
-* Tue May 07 2019 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.16.0-2
-- Add missing directory for vim plugin
-
-* Fri Apr 26 2019 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.16.0-1
-- Update to upstream release 1.16.0
-
-* Mon Mar 04 2019 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.15.9-1
-- Update to upstream release 1.15.9
-- Enable ngx_stream_ssl_preread module
-- Remove redundant conditionals
-
-* Fri Feb 01 2019 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.14.1-5
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_30_Mass_Rebuild
-
-* Mon Jan 14 2019 Björn Esser <besser82@fedoraproject.org> - 1:1.14.1-4
-- Rebuilt for libcrypt.so.2 (#1666033)
-
-* Tue Dec 11 2018 Joe Orton <jorton@redhat.com> - 1:1.14.1-3
-- fix unexpanded paths in nginx(8)
-
-* Tue Nov 20 2018 Luboš Uhliarik <luhliari@redhat.com> - 1:1.14.1-2
-- new version 1.14.1
-- Resolves: #1584426 - Upstream Nginx 1.14.0 is now available
-- Resolves: #1647255 - CVE-2018-16845 nginx: Denial of service and memory
-  disclosure via mp4 module
-- Resolves: #1647259 - CVE-2018-16843 nginx: Excessive memory consumption
-  via flaw in HTTP/2 implementation
-- Resolves: #1647258 - CVE-2018-16844 nginx: Excessive CPU usage via flaw
-  in HTTP/2 implementation
-
-* Mon Aug 06 2018 Luboš Uhliarik <luhliari@redhat.com> - 1:1.12.1-14
-- add requires on perl(constant) for mod-http-perl
-
-* Mon Jul 30 2018 Luboš Uhliarik <luhliari@redhat.com> - 1:1.12.1-13
-- don't build with geoip by default
-
-* Thu Jul 19 2018 Joe Orton <jorton@redhat.com> - 1:1.12.1-12
-- add build conditional for geoip support
-
-* Mon Jul 16 2018 Tadej Janež <tadej.j@nez.si> - 1:1.12.1-11
-- Add gcc to BuildRequires to account for
-  https://fedoraproject.org/wiki/Changes/Remove_GCC_from_BuildRoot
-
-* Fri Jul 13 2018 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.12.1-10
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_29_Mass_Rebuild
-
-* Wed Jun 27 2018 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.12.1-9
-- Perl 5.28 rebuild
-
-* Mon May 14 2018 Luboš Uhliarik <luhliari@redhat.com> - 1:1.12.1-8
-- Related: #1573942 - nginx fails on start
-
-* Wed May 02 2018 Luboš Uhliarik <luhliari@redhat.com> - 1:1.12.1-7
-- Resolves: #1573942 - nginx fails on start
-
-* Thu Feb 08 2018 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.12.1-6
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_28_Mass_Rebuild
-
-* Wed Jan 24 2018 Björn Esser <besser82@fedoraproject.org> - 1:1.12.1-5
-- Add patch to apply glibc bugfix if really needed only
-- Disable strict symbol checks in the link editor
-
-* Sat Jan 20 2018 Björn Esser <besser82@fedoraproject.org> - 1:1.12.1-4
-- Rebuilt for switch to libxcrypt
-
-* Tue Oct 24 2017 Joe Orton <jorton@redhat.com> - 1:1.12.1-3
-- rebuild
-
-* Tue Sep 19 2017 Remi Collet <remi@fedoraproject.org> - 1:1.12.1-2
-- own system drop-in directories #1493036
-
-* Tue Aug 15 2017 Joe Orton <jorton@redhat.com> - 1:1.12.1-1
-- update to 1.12.1 (#1469924)
-- enable http_auth_request_module (Tim Niemueller, #1471106)
-
-* Thu Aug 03 2017 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.12.0-4
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_27_Binutils_Mass_Rebuild
-
-* Wed Jul 26 2017 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.12.0-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_27_Mass_Rebuild
-
-* Sun Jun 04 2017 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.12.0-2
-- Perl 5.26 rebuild
-
-* Tue May 30 2017 Luboš Uhliarik <luhliari@redhat.com> - 1:1.12.0-1
-- new version 1.12.0
-
-* Wed Feb  8 2017 Joe Orton <jorton@redhat.com> - 1:1.10.3-1
-- update to upstream release 1.10.3
-
-* Mon Oct 31 2016 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.10.2-1
-- update to upstream release 1.10.2
-
-* Tue May 31 2016 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.10.1-1
-- update to upstream release 1.10.1
-
-* Sun May 15 2016 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.10.0-4
-- Perl 5.24 rebuild
-
-* Sun May  8 2016 Peter Robinson <pbrobinson@fedoraproject.org> 1:1.10.0-3
-- Enable AIO on aarch64 (rhbz 1258414)
-
-* Wed Apr 27 2016 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.10.0-2
-- only Require nginx-all-modules for EPEL and current Fedora releases
-
-* Wed Apr 27 2016 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.10.0-1
-- update to upstream release 1.10.0
-- split dynamic modules into subpackages
-- spec file cleanup
-
-* Thu Feb 04 2016 Fedora Release Engineering <releng@fedoraproject.org> - 1:1.8.1-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_24_Mass_Rebuild
-
-* Tue Jan 26 2016 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.1-1
-- update to upstream release 1.8.1
-- CVE-2016-0747: Insufficient limits of CNAME resolution in resolver
-- CVE-2016-0746: Use-after-free during CNAME response processing in resolver
-- CVE-2016-0742: Invalid pointer dereference in resolver
-
-* Sun Oct 04 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-14
-- consistently use '%%global with_foo' style of logic
-- remove PID file before starting nginx (#1268621)
-
-* Fri Sep 25 2015 Ville Skyttä <ville.skytta@iki.fi> - 1:1.8.0-13
-- Use nginx-mimetypes from mailcap (#1248736)
-- Mark LICENSE as %%license
-
-* Thu Sep 10 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-12
-- also build with gperftools on aarch64 (#1258412)
-
-* Wed Aug 12 2015 Nikos Mavrogiannopoulos <nmav@redhat.com> - 1:1.8.0-11
-- nginx.conf: added commented-out SSL configuration directives (#1179232)
-
-* Fri Jul 03 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-10
-- switch back to /bin/kill in logrotate script due to SELinux denials
-
-* Tue Jun 16 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-9
-- fix path to png in error pages (#1232277)
-- optimize png images with optipng
-
-* Sun Jun 14 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-8
-- replace /bin/kill with /usr/bin/systemctl kill in logrotate script (#1231543)
-- remove After=syslog.target in nginx.service (#1231543)
-- replace ExecStop with KillSignal=SIGQUIT in nginx.service (#1231543)
-
-* Wed Jun 03 2015 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.8.0-7
-- Perl 5.22 rebuild
-
-* Sun May 10 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-6
-- revert previous change
-
-* Sun May 10 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-5
-- move default server to default.conf (#1220094)
-
-* Sun May 10 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-4
-- add TimeoutStopSec=5 and KillMode=mixed to nginx.service
-- set worker_processes to auto
-- add some common options to the http block in nginx.conf
-- run nginx-upgrade on package update
-- remove some redundant scriptlet commands
-- listen on ipv6 for default server (#1217081)
-
-* Wed Apr 22 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-3
-- improve nginx-upgrade script
-
-* Wed Apr 22 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-2
-- add --with-pcre-jit
-
-* Wed Apr 22 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.8.0-1
-- update to upstream release 1.8.0
-
-* Thu Apr 09 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.7.12-1
-- update to upstream release 1.7.12
-
-* Sun Feb 15 2015 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.7.10-1
-- update to upstream release 1.7.10
-- remove systemd conditionals
-
-* Wed Oct 22 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.2-4
-- fix package ownership of directories
-
-* Wed Oct 22 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.2-3
-- add vim files (#1142849)
-
-* Mon Sep 22 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.2-2
-- create nginx-filesystem subpackage (patch from Remi Collet)
-- create /etc/nginx/default.d as a drop-in directory for configuration files
-  for the default server block
-- clean up nginx.conf
-
-* Wed Sep 17 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.2-1
-- update to upstream release 1.6.2
-- CVE-2014-3616 nginx: virtual host confusion (#1142573)
-
-* Wed Aug 27 2014 Jitka Plesnikova <jplesnik@redhat.com> - 1:1.6.1-4
-- Perl 5.20 rebuild
-
-* Sun Aug 17 2014 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1:1.6.1-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_21_22_Mass_Rebuild
-
-* Tue Aug 05 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.1-2
-- add logic for EPEL 7
-
-* Tue Aug 05 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.1-1
-- update to upstream release 1.6.1
-- (#1126891) CVE-2014-3556: SMTP STARTTLS plaintext injection flaw
-
-* Wed Jul 02 2014 Yaakov Selkowitz <yselkowi@redhat.com> - 1:1.6.0-3
-- Fix FTBFS on aarch64 (#1115559)
-
-* Sat Jun 07 2014 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1:1.6.0-2
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_21_Mass_Rebuild
-
-* Sat Apr 26 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.6.0-1
-- update to upstream release 1.6.0
-
-* Tue Mar 18 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.7-1
-- update to upstream release 1.4.7
-
-* Wed Mar 05 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.6-1
-- update to upstream release 1.4.6
-
-* Sun Feb 16 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.5-2
-- avoid multiple index directives (#1065488)
-
-* Sun Feb 16 2014 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.5-1
-- update to upstream release 1.4.5
-
-* Wed Nov 20 2013 Peter Borsa <peter.borsa@gmail.com> - 1:1.4.4-1
-- Update to upstream release 1.4.4
-- Security fix BZ 1032267
-
-* Sun Nov 03 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.3-1
-- update to upstream release 1.4.3
-
-* Fri Aug 09 2013 Jonathan Steffan <jsteffan@fedoraproject.org> - 1:1.4.2-3
-- Add in conditionals to build for non-systemd targets
-
-* Sat Aug 03 2013 Petr Pisar <ppisar@redhat.com> - 1:1.4.2-2
-- Perl 5.18 rebuild
-
-* Fri Jul 19 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.2-1
-- update to upstream release 1.4.2
-
-* Wed Jul 17 2013 Petr Pisar <ppisar@redhat.com> - 1:1.4.1-3
-- Perl 5.18 rebuild
-
-* Tue Jun 11 2013 Remi Collet <rcollet@redhat.com> - 1:1.4.1-2
-- rebuild for new GD 2.1.0
-
-* Tue May 07 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.1-1
-- update to upstream release 1.4.1 (#960605, #960606):
-  CVE-2013-2028 stack-based buffer overflow when handling certain chunked
-  transfer encoding requests
-
-* Sun Apr 28 2013 Dan Horák <dan[at]danny.cz> - 1:1.4.0-2
-- gperftools exist only on selected arches
-
-* Fri Apr 26 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.4.0-1
-- update to upstream release 1.4.0
-- enable SPDY module (new in this version)
-- enable http gunzip module (new in this version)
-- enable google perftools module and add gperftools-devel to BR
-- enable debugging (#956845)
-- trim changelog
-
-* Tue Apr 02 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.8-1
-- update to upstream release 1.2.8
-
-* Fri Feb 22 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.7-2
-- make sure nginx directories are not world readable (#913724, #913735)
-
-* Sat Feb 16 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.7-1
-- update to upstream release 1.2.7
-- add .asc file
-
-* Tue Feb 05 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-6
-- use 'kill' instead of 'systemctl' when rotating log files to workaround
-  SELinux issue (#889151)
-
-* Wed Jan 23 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-5
-- uncomment "include /etc/nginx/conf.d/*.conf by default but leave the
-  conf.d directory empty (#903065)
-
-* Wed Jan 23 2013 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-4
-- add comment in nginx.conf regarding "include /etc/nginf/conf.d/*.conf"
-  (#903065)
-
-* Wed Dec 19 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-3
-- use correct file ownership when rotating log files
-
-* Tue Dec 18 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-2
-- send correct kill signal and use correct file permissions when rotating
-  log files (#888225)
-- send correct kill signal in nginx-upgrade
-
-* Tue Dec 11 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.6-1
-- update to upstream release 1.2.6
-
-* Sat Nov 17 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.5-1
-- update to upstream release 1.2.5
-
-* Sun Oct 28 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.4-1
-- update to upstream release 1.2.4
-- introduce new systemd-rpm macros (#850228)
-- link to official documentation not the community wiki (#870733)
-- do not run systemctl try-restart after package upgrade to allow the
-  administrator to run nginx-upgrade and avoid downtime
-- add nginx man page (#870738)
-- add nginx-upgrade man page and remove README.fedora
-- remove chkconfig from Requires(post/preun)
-- remove initscripts from Requires(preun/postun)
-- remove separate configuration files in "/etc/nginx/conf.d" directory
-  and revert to upstream default of a centralized nginx.conf file
-  (#803635) (#842738)
-
-* Fri Sep 21 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.3-1
-- update to upstream release 1.2.3
-
-* Fri Jul 20 2012 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1:1.2.1-3
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_18_Mass_Rebuild
-
-* Thu Jun 28 2012 Petr Pisar <ppisar@redhat.com> - 1:1.2.1-2
-- Perl 5.16 rebuild
-
-* Sun Jun 10 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.1-1
-- update to upstream release 1.2.1
-
-* Fri Jun 08 2012 Petr Pisar <ppisar@redhat.com> - 1:1.2.0-2
-- Perl 5.16 rebuild
-
-* Wed May 16 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.2.0-1
-- update to upstream release 1.2.0
-
-* Wed May 16 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.15-4
-- add nginx-upgrade to replace functionality from the nginx initscript
-  that was lost after migration to systemd
-- add README.fedora to describe usage of nginx-upgrade
-- nginx.logrotate: use built-in systemd kill command in postrotate script
-- nginx.service: start after syslog.target and network.target
-- nginx.service: remove unnecessary references to config file location
-- nginx.service: use /bin/kill instead of "/usr/sbin/nginx -s" following
-  advice from nginx-devel
-- nginx.service: use private /tmp
-
-* Mon May 14 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.15-3
-- fix incorrect postrotate script in nginx.logrotate
-
-* Thu Apr 19 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.15-2
-- renable auto-cc-gcc patch due to warnings on rawhide
-
-* Sat Apr 14 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.15-1
-- update to upstream release 1.0.15
-- no need to apply auto-cc-gcc patch
-- add %%global _hardened_build 1
-
-* Thu Mar 15 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.14-1
-- update to upstream release 1.0.14
-- amend some %%changelog formatting
-
-* Tue Mar 06 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.13-1
-- update to upstream release 1.0.13
-- amend --pid-path and --log-path
-
-* Sun Mar 04 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.12-5
-- change pid path in nginx.conf to match systemd service file
-
-* Sun Mar 04 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.12-3
-- fix %%pre scriptlet
-
-* Mon Feb 20 2012 Jamie Nguyen <jamielinux@fedoraproject.org> - 1:1.0.12-2
-- update upstream URL
-- replace %%define with %%global
-- remove obsolete BuildRoot tag, %%clean section and %%defattr
-- remove various unnecessary commands
-- add systemd service file and update scriptlets
-- add Epoch to accommodate %%triggerun as part of systemd migration
-
-* Sun Feb 19 2012 Jeremy Hinegardner <jeremy at hinegardner dot org> - 1.0.12-1
-- Update to 1.0.12
-
-* Thu Nov 17 2011 Keiran "Affix" Smith <fedora@affix.me> - 1.0.10-1
-- Bugfix: a segmentation fault might occur in a worker process if resolver got a big DNS response. Thanks to Ben Hawkes.
-- Bugfix: in cache key calculation if internal MD5 implementation wasused; the bug had appeared in 1.0.4.
-- Bugfix: the module ngx_http_mp4_module sent incorrect "Content-Length" response header line if the "start" argument was used. Thanks to Piotr Sikora.
-
-* Thu Oct 27 2011 Keiran "Affix" Smith <fedora@affix.me> - 1.0.8-1
-- Update to new 1.0.8 stable release
-
-* Fri Aug 26 2011 Keiran "Affix" Smith <fedora@affix.me> - 1.0.5-1
-- Update nginx to Latest Stable Release
-
-* Fri Jun 17 2011 Marcela Mašláňová <mmaslano@redhat.com> - 1.0.0-3
-- Perl mass rebuild
-
-* Thu Jun 09 2011 Marcela Mašláňová <mmaslano@redhat.com> - 1.0.0-2
-- Perl 5.14 mass rebuild
-
-* Wed Apr 27 2011 Jeremy Hinegardner <jeremy at hinegardner dot org> - 1.0.0-1
-- Update to 1.0.0
-
-* Tue Feb 08 2011 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.8.53-6
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_15_Mass_Rebuild
-
-* Sun Dec 12 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.8.53.5
-- Extract out default config into its own file (bug #635776)
-
-* Sun Dec 12 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.8.53-4
-- Revert ownership of log dir
-
-* Sun Dec 12 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.8.53-3
-- Change ownership of /var/log/nginx to be 0700 nginx:nginx
-- update init script to use killproc -p
-- add reopen_logs command to init script
-- update init script to use nginx -q option
-
-* Sun Oct 31 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.8.53-2
-- Fix linking of perl module
-
-* Sun Oct 31 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.8.53-1
-- Update to new stable 0.8.53
-
-* Sat Jul 31 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.7.67-2
-- add Provides: webserver (bug #619693)
-
-* Sun Jun 20 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.7.67-1
-- Update to new stable 0.7.67
-- fix bugzilla #591543
-
-* Tue Jun 01 2010 Marcela Maslanova <mmaslano@redhat.com> - 0.7.65-2
-- Mass rebuild with perl-5.12.0
-
-* Mon Feb 15 2010 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.7.65-1
-- Update to new stable 0.7.65
-- change ownership of logdir to root:root
-- add support for ipv6 (bug #561248)
-- add random_index_module
-- add secure_link_module
-
-* Fri Dec 04 2009 Jeremy Hinegardner <jeremy at hinegardner dot org> - 0.7.64-1
-- Update to new stable 0.7.64
-
-## END: Generated by rpmautospec
+* Thu Nov 12 2026 wjiang <cameyan@163.com> - 2:1.30.6-1
+- 1. 基于 Fedora44 nginx-1.30.6-1 版本初始化 nginx 仓库
+  2. 为 spec 全文补充中文注释，便于学习与适配
+  3. 移除 rpmautospec 自动机制，改为手工维护 release 与 changelog 信息
+  4. 移除原有的 changelog 冗余信息
