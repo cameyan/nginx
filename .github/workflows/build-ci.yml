@@ -1,0 +1,53 @@
+name: Nginx 测试构建并发布预发行版
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-dev:
+    name: 测试构建并上传 Pre-release
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装依赖并构建 RPM
+        run: |
+          dnf install -y rpm-build rpmdevtools dnf-plugins-core gcc make perl
+
+          rpmdev-setuptree
+          cp -a * "$HOME/rpmbuild/SOURCES/"
+          cp -a nginx.spec "$HOME/rpmbuild/SPECS/"
+
+          dnf builddep -y "$HOME/rpmbuild/SPECS/nginx.spec"
+          rpmbuild --noclean -ba "$HOME/rpmbuild/SPECS/nginx.spec"
+
+          mkdir dist_ci_rpm
+          find "$HOME/rpmbuild/RPMS/" -type f -name "*.rpm" -exec cp -a {} dist_ci_rpm/ \;
+          find "$HOME/rpmbuild/SRPMS/" -type f -name "*.src.rpm" -exec cp -a {} dist_ci_rpm/ \;
+
+      - name: 清理旧的测试 Pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dnf install -y gh
+          gh release delete "build-ci" --repo "${{ github.repository }}" --yes || true
+
+      - name: 发布最新测试构建 Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-ci
+          name: "测试构建 (build-ci)"
+          body: "最新提交的自动化测试构建产物(Commit: ${{ github.sha }})"
+          draft: false
+          prerelease: true
+          files: |
+            dist_ci_rpm/*
